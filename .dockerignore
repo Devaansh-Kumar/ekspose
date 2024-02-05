@@ -1,0 +1,7 @@
+.dockerignore
+ekspose
+kind-config.yaml
+manifests/
+.git
+.gitignore
+README.md
