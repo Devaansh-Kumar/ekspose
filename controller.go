@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	appsinformer "k8s.io/client-go/informers/apps/v1"
@@ -82,9 +83,29 @@ func (c *contoller) processItem() bool {
 		fmt.Printf("error splitting key into namespace and name: %s\n", err.Error())
 	}
 
+	//check if object has been deleted from the cluster
+	ctx := context.Background()
+	_, err = c.clientset.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		fmt.Printf("Deployment was deleted\n")
+		err = c.clientset.CoreV1().Services(ns).Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil {
+			fmt.Printf("error deleting service %s: %s", name, err.Error())
+			return false
+		}
+
+		err = c.clientset.NetworkingV1().Ingresses(ns).Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil {
+			fmt.Printf("error deleting ingress %s: %s", name, err.Error())
+			return false
+		}
+
+		return true
+	}
+
 	err = c.syncDeployment(ns, name)
 	if err != nil {
-		fmt.Printf("error syncing deployments\n: %s", err.Error())
+		fmt.Printf("error syncing deployments: %s\n", err.Error())
 		return false
 	}
 
@@ -164,12 +185,11 @@ func createIngress(ctx context.Context, client kubernetes.Interface, svc *corev1
 }
 
 func (c *contoller) handleAdd(obj interface{}) {
-	fmt.Println("handleAdd")
 	c.workqueue.Add(obj)
 }
 
 func (c *contoller) handleDelete(obj interface{}) {
-	fmt.Println("handleDelete")
+	c.workqueue.Add(obj)
 }
 
 func depLabels(dep appsv1.Deployment) map[string]string {
